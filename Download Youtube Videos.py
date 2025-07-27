@@ -1,11 +1,15 @@
-from pytubefix import YouTube
+from pytubefix import YouTube, Playlist
 import os
 import time
 import re
+from datetime import datetime, timezone, timedelta
 from better_ffmpeg_progress import FfmpegProcess
 
 file_size = 0
 start_time = 0
+
+def seconds_to_hms(seconds):
+    return datetime.utcfromtimestamp(seconds).strftime('%H:%M:%S')
 
 def sanitize_filename(name):
     cleaned = re.sub(r'[\\/*?:"<>|]', "", name)
@@ -61,17 +65,33 @@ def download_stream(stream, file_path):
     save_location, filename = os.path.split(file_path)
     stream.download(output_path=save_location, filename=filename)
 
+def download_playlist(playlist_url, save_location):
+    try:
+        pl = Playlist(playlist_url)
+        print(f"\n📃 Playlist: {pl.title}")
+        print(f"🎞️ Found {len(pl.video_urls)} videos")
+
+        for i, video_url in enumerate(pl.video_urls, 1):
+            print(f"\n🔢 Downloading {i}/{len(pl.video_urls)}: {video_url}")
+            download_with_resolution_choice(video_url, save_location)
+
+    except Exception as e:
+        print(f"\n❌ Playlist error: {e}")
+
 def download_with_resolution_choice(link, save_location):
     try:
         yt = YouTube(link, on_progress_callback=on_progress)
         video_streams = yt.streams.filter(only_video=True, file_extension='mp4').order_by('resolution').desc()
         audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').order_by('abr').desc().first()
-
+        video_length = seconds_to_hms(yt.length)
+        just_date = yt.publish_date.date()
+        
         if not video_streams or not audio_stream:
             print("❌ No suitable streams found.")
             return
 
-        print(f"\n🎬 {yt.title}")
+        print(f"\n🎬 Channel: {yt.author} | Published: {just_date} | Length: {video_length}")
+        print(f"🎬 Title: {yt.title}")
         selected_video = None
 
         if auto_select:
@@ -104,7 +124,9 @@ def download_with_resolution_choice(link, save_location):
         print(f"🎥 {selected_video.resolution} | 🎛️ Codec: {selected_video.codecs[0]} | 🔊 {audio_stream.abr}")
         codec_short = selected_video.codecs[0].split('.')[0] if selected_video.codecs else "unknown"
         safe_title = sanitize_filename(yt.title)
-
+        
+        temp_filename = datetime.now().strftime("%Y-%m-%d - %H;%M;%S") + " Temp"
+        
         print("\n⬇️ Downloading video stream as Temp.mp4...")
         video_path = os.path.join(temp_location, f"{temp_filename}.mp4")
         download_stream(selected_video, video_path)
@@ -115,7 +137,7 @@ def download_with_resolution_choice(link, save_location):
 
         print("\n🎉 Done! Temp files saved.")
         
-        output_filename = f"{safe_title} ({selected_video.resolution} {codec_short}).mp4"
+        output_filename = f"{just_date}, {yt.author}, {safe_title} ({selected_video.resolution} {codec_short}).mp4"
         output_path = os.path.join(save_location, output_filename)
 
         merge_video_audio(video_path, audio_path, output_path)
@@ -130,12 +152,13 @@ auto_select = True
 default_resolution = "1080p"
 default_codec = "av01"
 temp_location = r"C:\Temp"
-temp_filename = "Temp"
 save_location = r"C:\YouTube"
 
-urls = input("📋 Enter multiple YouTube URLs separated by commas:\n").split(',')
+input_links = input("📋 Enter YouTube video or playlist URLs separated by commas:\n").split(',')
 
-for url in urls:
+for url in input_links:
     cleaned_url = url.strip()
-    if cleaned_url:
+    if "playlist" in cleaned_url:
+        download_playlist(cleaned_url, save_location)
+    elif cleaned_url:
         download_with_resolution_choice(cleaned_url, save_location)
